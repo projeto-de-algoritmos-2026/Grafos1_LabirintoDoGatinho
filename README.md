@@ -35,7 +35,7 @@ Linguagem: Python 3.10+
 
 ```bash
 # 1. Entre na pasta do projeto
-cd G9_Grafos_PA-26.1
+cd Grafos1_LabirintoDoGatinho
 
 # 2. Crie e ative um ambiente virtual (recomendado)
 python -m venv venv
@@ -81,7 +81,7 @@ O caminho BFS é recalculado a cada passo e atualizados instantaneamente na tela
 
 **Estrutura do projeto:**
 ```
-labirinto-rpg/
+Grafos1_LabirintoDoGatinho/
 ├── app.py           ← Backend Flask: geração do labirinto, BFS e API REST
 ├── requirements.txt ← Dependências (apenas Flask)
 └── static/
