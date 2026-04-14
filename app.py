@@ -1,3 +1,4 @@
+import heapq
 import random
 from collections import deque
 
@@ -148,6 +149,43 @@ def bfs(grafo: dict, origem: tuple, destino: tuple) -> list[tuple]:
     return []  # Sem caminho
 
 # ─────────────────────────────────────────────
+# Algoritmo 2: Dijkstra — Caminho de Menor Custo
+# ─────────────────────────────────────────────
+
+def dijkstra(grafo: dict, origem: tuple, destino: tuple) -> list[tuple]:
+    if origem not in grafo or destino not in grafo:
+        return []
+
+    # dist[v] = menor custo conhecido até v
+    dist = {no: float("inf") for no in grafo}
+    dist[origem] = 0
+
+    # Heap: (custo, nó, caminho)
+    heap = [(0, origem, [origem])]
+
+    # Conjunto de nós já finalizados (custo mínimo definitivo)
+    finalizados = set()
+
+    while heap:
+        custo_atual, no_atual, caminho = heapq.heappop(heap)
+
+        if no_atual in finalizados:
+            continue  # Já processamos este nó com custo menor
+        finalizados.add(no_atual)
+
+        if no_atual == destino:
+            return caminho
+
+        for (vizinho, peso) in grafo.get(no_atual, []):
+            if vizinho not in finalizados:
+                novo_custo = custo_atual + peso
+                if novo_custo < dist[vizinho]:
+                    dist[vizinho] = novo_custo
+                    heapq.heappush(heap, (novo_custo, vizinho, caminho + [vizinho]))
+
+    return []  # Sem caminho
+
+# ─────────────────────────────────────────────
 # Estado Global
 # ─────────────────────────────────────────────
 
@@ -199,10 +237,23 @@ def api_caminhos():
         return jsonify({"erro": "Labirinto não gerado. Chame /api/mapa primeiro."}), 400
 
     caminho_bfs = bfs(grafo, origem, END)
+    caminho_dijkstra = dijkstra(grafo, origem, END)
+
+    # Calcula custo real do Dijkstra (soma dos pesos)
+    def calcular_custo(caminho):
+        if len(caminho) < 2:
+            return 0
+        total = 0
+        for i in range(1, len(caminho)):
+            r, c = caminho[i]
+            total += WEIGHTS.get(grid[r][c], 1)
+        return total
 
     return jsonify({
         "path_bfs": [list(p) for p in caminho_bfs],
+        "path_dijkstra": [list(p) for p in caminho_dijkstra],
         "custo_bfs": len(caminho_bfs) - 1 if caminho_bfs else -1,
+        "custo_dijkstra": calcular_custo(caminho_dijkstra),
     })
 
 
@@ -212,7 +263,7 @@ def api_caminhos():
 
 if __name__ == "__main__":
     print("=" * 50)
-    print("  Labirinto RPG — Servidor Flask iniciado")
+    print("  Labirinto do Gatinho — Servidor Flask iniciado")
     print("  Acesse: http://localhost:5000")
     print("=" * 50)
     app.run(debug=False, port=5000)

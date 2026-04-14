@@ -958,6 +958,328 @@
             </div>
         </div>
     </div>
+
+    <script>
+        "use strict";
+
+        const G = {
+            grid: null, player: [0, 0], end: [9, 9],
+            pathBfs: [], pathDijk: [],
+            viewMode: 'both',
+            alive: true, won: false,
+            lastBfs: null, lastDijk: null,
+            // AbortController da requisição em voo — cancelamos se chegar outra antes
+            _fetchController: null,
+            // Última posição para a qual pedimos caminhos — descartamos resposta se ficar velha
+            _fetchSeq: 0,
+        };
+        const GRID = 10;
+
+        const $table = document.getElementById('mazeTable');
+        const $canvas = document.getElementById('pathCanvas');
+        const $loading = document.getElementById('loadingOverlay');
+        const $death = document.getElementById('deathOverlay');
+        const $win = document.getElementById('winOverlay');
+        const $confW = document.getElementById('confettiWrap');
+        const $status = document.getElementById('statusLine');
+        const $stBfs = document.getElementById('statBfs');
+        const $stDijk = document.getElementById('statDijk');
+        const $stPos = document.getElementById('statPos');
+        const $wBfs = document.getElementById('winStatBfs');
+        const $wDijk = document.getElementById('winStatDijk');
+
+        async function apiFetchMapa() {
+            const r = await fetch('/api/mapa');
+            if (!r.ok) throw new Error('erro mapa');
+            return r.json();
+        }
+        async function apiFetchCaminhos(x, y, signal) {
+            const r = await fetch('/api/caminhos', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ x, y }),
+                signal,
+            });
+            if (!r.ok) throw new Error('erro caminhos');
+            return r.json();
+        }
+
+        const EMOJI = { wall: '🧱', water: '🌊', bomb: '💣', free: '' };
+
+        function renderGrade() {
+            $table.innerHTML = '';
+            const [pr, pc] = G.player;
+            const [er, ec] = G.end;
+            for (let r = 0; r < GRID; r++) {
+                const tr = document.createElement('tr');
+                for (let c = 0; c < GRID; c++) {
+                    const td = document.createElement('td');
+                    const tipo = G.grid[r][c];
+                    td.dataset.r = r; td.dataset.c = c;
+                    if (r === pr && c === pc) {
+                        td.className = 'player-cell'; td.textContent = '🐱';
+                    } else if (r === er && c === ec) {
+                        td.className = 'end-cell'; td.textContent = '🐟';
+                    } else {
+                        td.className = tipo; td.textContent = EMOJI[tipo] ?? '';
+                    }
+                    tr.appendChild(td);
+                }
+                $table.appendChild(tr);
+            }
+            requestAnimationFrame(() => {
+                $canvas.setAttribute('width', $table.offsetWidth);
+                $canvas.setAttribute('height', $table.offsetHeight);
+                $canvas.style.width = $table.offsetWidth + 'px';
+                $canvas.style.height = $table.offsetHeight + 'px';
+                aplicarPaths();
+            });
+        }
+
+        function cel(r, c) { return $table.querySelector(`td[data-r="${r}"][data-c="${c}"]`); }
+        function centro(r, c) {
+            const td = cel(r, c);
+            if (!td) return null;
+            return { x: td.offsetLeft + td.offsetWidth / 2, y: td.offsetTop + td.offsetHeight / 2 };
+        }
+
+        function aplicarPaths() {
+            $table.querySelectorAll('.on-bfs,.on-dijk,.on-both').forEach(td =>
+                td.classList.remove('on-bfs', 'on-dijk', 'on-both')
+            );
+            $canvas.innerHTML = '';
+
+            const showB = G.viewMode === 'bfs' || G.viewMode === 'both';
+            const showD = G.viewMode === 'dijk' || G.viewMode === 'both';
+            if (!showB && !showD) return;
+
+            const [pr, pc] = G.player;
+            const [er, ec] = G.end;
+            const skip = (r, c) => (r === pr && c === pc) || (r === er && c === ec);
+            const setD = new Set(G.pathDijk.map(p => p.join(',')));
+
+            if (showB) {
+                for (const [r, c] of G.pathBfs) {
+                    if (skip(r, c)) continue;
+                    const td = cel(r, c); if (!td) continue;
+                    td.classList.add(showD && setD.has(`${r},${c}`) ? 'on-both' : 'on-bfs');
+                }
+            }
+            if (showD) {
+                for (const [r, c] of G.pathDijk) {
+                    if (skip(r, c)) continue;
+                    const td = cel(r, c); if (!td) continue;
+                    if (!td.classList.contains('on-both') && !td.classList.contains('on-bfs'))
+                        td.classList.add('on-dijk');
+                }
+            }
+
+            if (showB) desenharLinha(G.pathBfs, '#6aaee8', false);
+            if (showD) desenharLinha(G.pathDijk, '#e8a86a', true);
+        }
+
+        function desenharLinha(path, cor, dashed) {
+            if (path.length < 2) return;
+            const pts = path.map(([r, c]) => centro(r, c)).filter(Boolean);
+            if (pts.length < 2) return;
+            const pontos = pts.map(p => `${p.x},${p.y}`).join(' ');
+
+            const g = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+            g.setAttribute('points', pontos); g.setAttribute('fill', 'none');
+            g.setAttribute('stroke', cor); g.setAttribute('stroke-opacity', '0.18');
+            g.setAttribute('stroke-width', '9'); g.setAttribute('stroke-linecap', 'round');
+            g.setAttribute('stroke-linejoin', 'round');
+            $canvas.appendChild(g);
+
+            const l = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+            l.setAttribute('points', pontos); l.setAttribute('fill', 'none');
+            l.setAttribute('stroke', cor); l.setAttribute('stroke-width', '2.5');
+            l.setAttribute('stroke-linecap', 'round'); l.setAttribute('stroke-linejoin', 'round');
+            if (dashed) l.setAttribute('stroke-dasharray', '6 4');
+            $canvas.appendChild(l);
+        }
+
+        async function mover(dr, dc) {
+            if (!G.alive || G.won) return;
+            const [pr, pc] = G.player;
+            const nr = pr + dr, nc = pc + dc;
+            if (nr < 0 || nr >= GRID || nc < 0 || nc >= GRID) return;
+            const tipo = G.grid[nr][nc];
+
+            if (tipo === 'wall') { flash('⛔ Tem uma parede aí!', true); return; }
+
+            if (tipo === 'bomb') {
+                G.player = [nr, nc]; G.alive = false;
+                renderGrade();
+                setTimeout(() => $death.classList.add('show'), 300);
+                return;
+            }
+
+            // Movimento imediato — não espera a API responder
+            G.player = [nr, nc];
+            renderGrade();
+            $stPos.textContent = `(${nr}, ${nc})`;
+
+            const [er, ec] = G.end;
+            if (nr === er && nc === ec) {
+                G.won = true;
+                G.pathBfs = []; G.pathDijk = [];
+                aplicarPaths();
+                setTimeout(mostrarVitoria, 300);
+                return;
+            }
+
+            // Cancela requisição anterior se ainda estiver em voo
+            if (G._fetchController) G._fetchController.abort();
+            G._fetchController = new AbortController();
+
+            // Número de sequência: só aceitamos a resposta se for a mais recente
+            const seq = ++G._fetchSeq;
+
+            try {
+                const d = await apiFetchCaminhos(nr, nc, G._fetchController.signal);
+
+                // Descarta resposta se o jogador já se moveu de novo
+                if (seq !== G._fetchSeq) return;
+
+                G.pathBfs = d.path_bfs ?? [];
+                G.pathDijk = d.path_dijkstra ?? [];
+                G.lastBfs = d.custo_bfs;
+                G.lastDijk = d.custo_dijkstra;
+                $stBfs.textContent = d.custo_bfs >= 0 ? `${d.custo_bfs} passos` : '∞';
+                $stDijk.textContent = d.custo_dijkstra >= 0 ? `${d.custo_dijkstra} pts` : '∞';
+                aplicarPaths();
+            } catch (e) {
+                // AbortError é esperado ao cancelar — não é erro real
+                if (e.name !== 'AbortError') flash('Erro ao calcular caminhos', true);
+            }
+        }
+
+        function mostrarVitoria() {
+            $wBfs.textContent = `BFS: ${G.lastBfs != null ? G.lastBfs + ' passos' : '—'}`;
+            $wDijk.textContent = `Dijkstra: ${G.lastDijk != null ? G.lastDijk + ' pts' : '—'}`;
+            $win.classList.add('show');
+            lancarConfetti();
+        }
+
+        function lancarConfetti() {
+            const cores = ['#c9a8e0', '#f0a8c8', '#9dd4c0', '#a8cef0', '#f5c4a0', '#edd4f8'];
+            $confW.innerHTML = '';
+            for (let i = 0; i < 65; i++) {
+                const el = document.createElement('div');
+                el.className = 'cf';
+                el.style.cssText = `
+      left:${Math.random() * 100}vw; top:-20px;
+      width:${8 + Math.random() * 9}px; height:${7 + Math.random() * 9}px;
+      background:${cores[Math.floor(Math.random() * cores.length)]};
+      border-radius:${Math.random() > .5 ? '50%' : '3px'};
+      animation-duration:${1.4 + Math.random() * 2}s;
+      animation-delay:${Math.random() * .9}s;
+    `;
+                $confW.appendChild(el);
+            }
+        }
+
+        async function inicializar() {
+            G.busy = true;
+            $loading.classList.remove('hidden');
+            $death.classList.remove('show');
+            $win.classList.remove('show');
+            $confW.innerHTML = '';
+
+            try {
+                const d = await apiFetchMapa();
+                G.grid = d.grid; G.player = d.inicio; G.end = d.fim;
+                G.alive = true; G.won = false;
+                G.pathBfs = []; G.pathDijk = [];
+                G.lastBfs = null; G.lastDijk = null;
+
+                renderGrade();
+                $stPos.textContent = `(${G.player[0]}, ${G.player[1]})`;
+                $stBfs.textContent = '—';
+                $stDijk.textContent = '—';
+
+                const [r, c] = G.player;
+                const cam = await apiFetchCaminhos(r, c);
+                G.pathBfs = cam.path_bfs ?? [];
+                G.pathDijk = cam.path_dijkstra ?? [];
+                G.lastBfs = cam.custo_bfs;
+                G.lastDijk = cam.custo_dijkstra;
+                $stBfs.textContent = cam.custo_bfs >= 0 ? `${cam.custo_bfs} passos` : '∞';
+                $stDijk.textContent = cam.custo_dijkstra >= 0 ? `${cam.custo_dijkstra} pts` : '∞';
+                aplicarPaths();
+                setStatus('Mova o gatinho com as setas ⬆️⬇️⬅️➡️');
+            } catch (e) {
+                setStatus('Erro ao carregar. Recarregue a página.', true);
+            } finally {
+                G.busy = false;
+                $loading.classList.add('hidden');
+            }
+        }
+
+        function setStatus(msg, err = false) {
+            $status.textContent = msg;
+            $status.className = 'status-line' + (err ? ' err' : '');
+        }
+        let _et = null;
+        function flash(msg, err) {
+            setStatus(msg, err);
+            clearTimeout(_et);
+            _et = setTimeout(() => setStatus(''), 1400);
+        }
+
+        // Toggle visualização
+        function setViewMode(mode) {
+            G.viewMode = mode;
+            const clsMap = { bfs: 't-active-bfs', dijk: 't-active-dijk', both: 't-active-both', none: '' };
+            document.querySelectorAll('#toggleGroup .btn').forEach(b => {
+                b.classList.remove('t-active-bfs', 't-active-dijk', 't-active-both');
+                if (b.dataset.mode === mode && clsMap[mode])
+                    b.classList.add(clsMap[mode]);
+            });
+            aplicarPaths();
+        }
+        document.querySelectorAll('#toggleGroup .btn').forEach(btn => {
+            btn.addEventListener('click', () => setViewMode(btn.dataset.mode));
+        });
+        setViewMode('both'); // padrão
+
+        // Botões
+        document.getElementById('btnNovoMapa').addEventListener('click', inicializar);
+        document.getElementById('btnRestartDeath').addEventListener('click', inicializar);
+        document.getElementById('btnRestartWin').addEventListener('click', inicializar);
+
+        // Teclado
+        document.addEventListener('keydown', e => {
+            const mapa = {
+                ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1],
+                w: [-1, 0], s: [1, 0], a: [0, -1], d: [0, 1],
+            };
+            const dir = mapa[e.key];
+            if (dir) { e.preventDefault(); mover(dir[0], dir[1]); }
+        });
+
+        // D-Pad
+        document.querySelectorAll('.dp[data-dir]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const m = { up: [-1, 0], down: [1, 0], left: [0, -1], right: [0, 1] };
+                const d = m[btn.dataset.dir];
+                if (d) mover(d[0], d[1]);
+            });
+        });
+
+        // Resize
+        window.addEventListener('resize', () => {
+            if (!G.grid) return;
+            $canvas.setAttribute('width', $table.offsetWidth);
+            $canvas.setAttribute('height', $table.offsetHeight);
+            $canvas.style.width = $table.offsetWidth + 'px';
+            $canvas.style.height = $table.offsetHeight + 'px';
+            aplicarPaths();
+        });
+
+        inicializar();
+    </script>
 </body>
 
 </html>
