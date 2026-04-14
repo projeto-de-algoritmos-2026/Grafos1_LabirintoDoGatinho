@@ -23,7 +23,10 @@ O labirinto é gerado no backend como um grafo representado por **lista de adjac
 ---
 
 ## Screenshots
-
+![Gatinho na posição (0,0)](./static/assets/imagem1.png)
+![Gatinho no meio do caminho, posição (5,2)](./static/assets/imagem2.png)
+![Gatinho comeu o peixe, chegou ao fim do labirinto](./static/assets/imagem3.png)
+![Gatinho pisou em uma bomba durante o percurso](./static/assets/imagem4.png)
 
 ## Instalação
 
