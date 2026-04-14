@@ -16,8 +16,9 @@ Projeto desenvolvido como um minijogo de fuga de labirinto. O usuário controla 
 O objetivo central é permitir a visualização e comparação em tempo real de dois algoritmos clássicos de caminho mínimo sobre a mesma estrutura de labirinto:
 
 - **BFS (Busca em Largura):** explora o grafo camada por camada usando uma fila (`deque`). Garante o caminho com o **menor número de passos**, ignorando os pesos das células. Complexidade: O(V + E).
+- **Dijkstra:** usa uma fila de prioridade (`heapq`) para processar sempre o nó de menor custo acumulado. Garante o caminho de **menor custo ponderado**, considerando que células de lama têm peso 3 e células livres têm peso 1. Complexidade: O((V + E) log V).
 
-O labirinto é gerado no backend como um grafo representado por **lista de adjacência**. Paredes e bombas não possuem entradas no grafo (intransitáveis). A cada movimento do jogador, o algoritmo é executado novamente e os caminhos são desenhados sobre o mapa em tempo real.
+O labirinto é gerado no backend como um grafo representado por **lista de adjacência**. Paredes e bombas não possuem entradas no grafo (intransitáveis). A cada movimento do jogador, os dois algoritmos são executados novamente e os caminhos são desenhados sobre o mapa em tempo real — linha azul contínua para o BFS e linha laranja tracejada para o Dijkstra. Quando os caminhos divergem (por exemplo, quando há lama no trajeto mais curto), é possível observar visualmente a diferença fundamental entre os dois algoritmos.
 
 ---
 
@@ -82,7 +83,7 @@ O caminho BFS é recalculado a cada passo e atualizados instantaneamente na tela
 **Estrutura do projeto:**
 ```
 Grafos1_LabirintoDoGatinho/
-├── app.py           ← Backend Flask: geração do labirinto, BFS e API REST
+├── app.py           ← Backend Flask: geração do labirinto, BFS, Dijkstra e API REST
 ├── requirements.txt ← Dependências (apenas Flask)
 └── static/
     └── index.html   ← Frontend completo: HTML, CSS e JavaScript em um único arquivo
