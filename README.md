@@ -28,6 +28,12 @@ O labirinto é gerado no backend como um grafo representado por **lista de adjac
 ![Gatinho comeu o peixe, chegou ao fim do labirinto](./static/assets/imagem3.png)
 ![Gatinho pisou em uma bomba durante o percurso](./static/assets/imagem4.png)
 
+## Vídeo de Apresentação
+
+<iframe width="560" height="315" src="https://www.youtube.com/embed/gntpDkRv878?si=NZUW2spAqOXfN8RP" title="Grafos01 - Labirinto do Gatinho G09" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+
+[Link Alternativo](https://youtu.be/gntpDkRv878?si=H6GdXlkwSnr1cR_y)
+
 ## Instalação
 
 Linguagem: Python 3.10+
